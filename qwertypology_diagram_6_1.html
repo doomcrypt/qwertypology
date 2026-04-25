@@ -1,0 +1,147 @@
+<style>
+html, body { background: #000 !important; margin: 0; padding: 0; }
+#qwerty-wrap {
+  background: #000;
+  padding: 1rem;
+  font-family: 'Courier New', Courier, monospace;
+  box-sizing: border-box;
+  width: 100%;
+}
+#inp {
+  width: 100%;
+  font-size: 24px;
+  padding: 16px 20px;
+  border-radius: 3px;
+  border: 1px solid #00cc33;
+  background: #000;
+  color: #00ff41;
+  font-family: 'Courier New', Courier, monospace;
+  outline: none;
+  box-sizing: border-box;
+  caret-color: #00ff41;
+  box-shadow: 0 0 8px rgba(0,255,65,0.2);
+}
+#inp::placeholder { color: rgba(0,255,65,0.35); }
+#inp:focus { border-color: #00ff41; box-shadow: 0 0 12px rgba(0,255,65,0.35); }
+#canvas-wrap { margin-top: 16px; width: 100%; background: #000; border-radius: 3px; }
+#svg { display: block; }
+</style>
+<div id="qwerty-wrap">
+  <input id="inp" type="text" placeholder="Type anything…" autocomplete="off" spellcheck="false" />
+  <div id="canvas-wrap">
+    <svg id="svg" width="100%" viewBox="0 0 680 320" role="img">
+      <title>Qwertypological diagram</title>
+      <desc>A diagram showing connections between letters as you type</desc>
+    </svg>
+  </div>
+</div>
+<script>
+const ROWS = [
+  ['Q','W','E','R','T','Y','U','I','O','P'],
+  ['A','S','D','F','G','H','J','K','L'],
+  ['Z','X','C','V','B','N','M']
+];
+const SPECIAL = {' ':'SPC'};
+const keyPos = {};
+const KEY = 56, ROWOFF = [0, KEY*0.55, KEY*1.1];
+// Row widths: 10, 9, 7 keys
+// Total width of row0: 10*KEY + ROWOFF[0] = 560; center in 680 → PAD = (680 - 10*KEY) / 2 = 60
+// We'll center each row individually
+const VIEWW = 680, VIEWH = 320;
+const ROW_KEYS = [10, 9, 7];
+ROWS.forEach((row, ri) => {
+  const rowW = row.length * KEY + ROWOFF[ri];
+  const rowStart = (VIEWW - rowW) / 2;
+  row.forEach((k, ci) => {
+    const x = rowStart + ci * KEY + KEY/2 + ROWOFF[ri]/2;
+    const y = 60 + ri * KEY + KEY/2;
+    keyPos[k] = {x, y};
+  });
+});
+
+
+const COLORS = ['#00ff41','#00ff41','#00ff41','#00ff41','#00ff41','#00ff41','#00ff41'];
+const COLORS_LIGHT = COLORS; // same palette, always dark theme
+
+function getKey(ch) {
+  const u = ch.toUpperCase();
+  if (keyPos[u]) return u;
+  if (keyPos[ch]) return ch;
+  return null;
+}
+
+function render(text) {
+  const svg = document.getElementById('svg');
+  svg.style.background = '#000';
+
+  // Collect unique keys and edges
+  const chars = [...text].map(c => getKey(c)).filter(Boolean);
+  const uniqueKeys = [...new Set(chars)];
+  const edges = [];
+  for (let i = 0; i < chars.length - 1; i++) {
+    if (chars[i] !== chars[i+1]) {
+      edges.push([chars[i], chars[i+1]]);
+    }
+  }
+  // Edge frequency
+  const edgeFreq = {};
+  edges.forEach(([a,b]) => {
+    const k = a < b ? a+'-'+b : b+'-'+a;
+    edgeFreq[k] = (edgeFreq[k]||0) + 1;
+  });
+  // Key frequency
+  const keyFreq = {};
+  chars.forEach(k => { keyFreq[k] = (keyFreq[k]||0)+1; });
+
+  // Assign colors to unique keys
+  const keyColor = {};
+  uniqueKeys.forEach((k,i) => { keyColor[k] = i % COLORS.length; });
+
+  // Build SVG
+  let html = `<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs><rect width="100%" height="100%" fill="#000"/>`;
+
+  // Always draw keyboard ghost
+  ROWS.forEach((row, ri) => {
+    row.forEach((k, ci) => {
+      const {x, y} = keyPos[k];
+      const active = uniqueKeys.includes(k);
+      html += `<rect x="${x-22}" y="${y-22}" width="44" height="44" rx="7" fill="${active ? 'rgba(0,255,65,0.12)' : 'rgba(0,255,65,0.03)'}" stroke="${active ? COLORS[keyColor[k]] : 'rgba(0,255,65,0.12)'}" stroke-width="${active ? 1 : 0.5}"/>`;
+      html += `<text x="${x}" y="${y+6}" text-anchor="middle" font-family="'Courier New', monospace" font-size="${active ? 16 : 13}" font-weight="${active ? 700 : 400}" fill="${active ? COLORS[keyColor[k]] : 'rgba(0,255,65,0.2)'}">${k === ' ' ? '⎵' : k}</text>`;
+    });
+  });
+
+  if (chars.length === 0) {
+    svg.innerHTML = html;
+    return;
+  }
+  // Draw edges
+  const drawnEdges = new Set();
+  edges.forEach(([a,b]) => {
+    const ek = a < b ? a+'-'+b : b+'-'+a;
+    if (drawnEdges.has(ek)) return;
+    drawnEdges.add(ek);
+    const pa = keyPos[a], pb = keyPos[b];
+    const w = 2.0;
+    html += `<line x1="${pa.x}" y1="${pa.y}" x2="${pb.x}" y2="${pb.y}" stroke="${COLORS[keyColor[a]]}" stroke-width="${w}" stroke-opacity="0.8" marker-end="url(#arrow)"/>`;
+  });
+
+  // Key freq badge
+  uniqueKeys.forEach(k => {
+    if (!keyPos[k]) return;
+    const {x, y} = keyPos[k];
+    const f = keyFreq[k];
+    if (f > 1) {
+      html += `<circle cx="${x+14}" cy="${y-14}" r="9" fill="${COLORS[keyColor[k]]}" opacity="0.95"/>`;
+      html += `<text x="${x+14}" y="${y-10}" text-anchor="middle" font-family="'Courier New', monospace" font-size="9" font-weight="700" fill="#000">${f}</text>`;
+    }
+  });
+
+  svg.innerHTML = html;
+}
+
+const inp = document.getElementById('inp');
+inp.addEventListener('input', () => render(inp.value));
+render('');
+inp.focus();
+document.addEventListener('keydown', () => inp.focus());
+</script>
